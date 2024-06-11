@@ -32,7 +32,7 @@ pub mod response {
     use std::vec::Vec;
 
     use bitcoin::secp256k1::PublicKey;
-    use lightning::routing::router::RouteHop;
+    use crate::ldk::routing::router::RouteHop;
     use serde::{Deserialize, Serialize};
 
     use crate::ldk;

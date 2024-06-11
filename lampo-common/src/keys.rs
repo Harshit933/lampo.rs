@@ -1,9 +1,15 @@
 use std::{sync::Arc, time::SystemTime};
 
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use lightning::sign::{InMemorySigner, NodeSigner, OutputSpender, SignerProvider};
 
+use crate::ldk::sign::{InMemorySigner, NodeSigner, OutputSpender, SignerProvider};
 use crate::ldk::sign::{EntropySource, KeysManager};
+use crate::ldk::sign::Recipient;
+#[cfg(feature = "rgb")]
+pub use {
+    crate::conf::LampoConf,
+    std::{path::PathBuf, str::FromStr},
+};
 
 /// Lampo keys implementations
 pub struct LampoKeys {
@@ -11,6 +17,8 @@ pub struct LampoKeys {
 }
 
 impl LampoKeys {
+
+    #[cfg(feature = "vanilla")]
     pub fn new(seed: [u8; 32]) -> Self {
         // Fill in random_32_bytes with secure random data, or, on restart, reload the seed from disk.
         let start_time = SystemTime::now()
@@ -26,6 +34,25 @@ impl LampoKeys {
         }
     }
 
+    // We need a different function definition for this function as the previous version of `lightning`
+    // keysmanager takes also the path_dir as an argument.
+    #[cfg(feature = "rgb")]
+    pub fn new(seed: [u8; 32], conf: Arc<LampoConf>) -> Self {
+        let start_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
+
+        LampoKeys {
+            keys_manager: Arc::new(LampoKeysManager::new(
+                &seed,
+                start_time.as_secs(),
+                start_time.subsec_nanos(),
+                conf,
+            )),
+        }
+    }
+    
+    #[cfg(feature = "vanilla")]
     #[cfg(debug_assertions)]
     pub fn with_channel_keys(seed: [u8; 32], channels_keys: String) -> Self {
         // Fill in random_32_bytes with secure random data, or, on restart, reload the seed from disk.
@@ -67,8 +94,24 @@ pub struct LampoKeysManager {
 }
 
 impl LampoKeysManager {
+    #[cfg(feature = "vanilla")]
     pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32) -> Self {
         let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos);
+        Self {
+            inner,
+            funding_key: None,
+            revocation_base_secret: None,
+            payment_base_secret: None,
+            delayed_payment_base_secret: None,
+            htlc_base_secret: None,
+            shachain_seed: None,
+        }
+    }
+
+    #[cfg(feature = "rgb")]
+    pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32, conf: Arc<LampoConf>) -> Self {
+        let path = format!("{}/{}/rgb/", conf.root_path, conf.network.to_string());
+        let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos, PathBuf::from_str(path.as_str()).unwrap());
         Self {
             inner,
             funding_key: None,
@@ -112,41 +155,41 @@ impl EntropySource for LampoKeysManager {
 impl NodeSigner for LampoKeysManager {
     fn ecdh(
         &self,
-        recipient: lightning::sign::Recipient,
+        recipient: crate::ldk::sign::Recipient,
         other_key: &bitcoin::secp256k1::PublicKey,
         tweak: Option<&bitcoin::secp256k1::Scalar>,
     ) -> Result<bitcoin::secp256k1::ecdh::SharedSecret, ()> {
         self.inner.ecdh(recipient, other_key, tweak)
     }
 
-    fn get_inbound_payment_key_material(&self) -> lightning::sign::KeyMaterial {
+    fn get_inbound_payment_key_material(&self) -> crate::ldk::sign::KeyMaterial {
         self.inner.get_inbound_payment_key_material()
     }
 
     fn get_node_id(
         &self,
-        recipient: lightning::sign::Recipient,
+        recipient: crate::ldk::sign::Recipient,
     ) -> Result<bitcoin::secp256k1::PublicKey, ()> {
         self.inner.get_node_id(recipient)
     }
 
     fn sign_bolt12_invoice(
         &self,
-        invoice: &lightning::offers::invoice::UnsignedBolt12Invoice,
+        invoice: &crate::ldk::offers::invoice::UnsignedBolt12Invoice,
     ) -> Result<bitcoin::secp256k1::schnorr::Signature, ()> {
         self.inner.sign_bolt12_invoice(invoice)
     }
 
     fn sign_bolt12_invoice_request(
         &self,
-        invoice_request: &lightning::offers::invoice_request::UnsignedInvoiceRequest,
+        invoice_request: &crate::ldk::offers::invoice_request::UnsignedInvoiceRequest,
     ) -> Result<bitcoin::secp256k1::schnorr::Signature, ()> {
         self.inner.sign_bolt12_invoice_request(invoice_request)
     }
 
     fn sign_gossip_message(
         &self,
-        msg: lightning::ln::msgs::UnsignedGossipMessage,
+        msg: crate::ldk::ln::msgs::UnsignedGossipMessage,
     ) -> Result<bitcoin::secp256k1::ecdsa::Signature, ()> {
         self.inner.sign_gossip_message(msg)
     }
@@ -155,7 +198,7 @@ impl NodeSigner for LampoKeysManager {
         &self,
         hrp_bytes: &[u8],
         invoice_data: &[bitcoin::bech32::u5],
-        recipient: lightning::sign::Recipient,
+        recipient: crate::ldk::sign::Recipient,
     ) -> Result<bitcoin::secp256k1::ecdsa::RecoverableSignature, ()> {
         self.inner.sign_invoice(hrp_bytes, invoice_data, recipient)
     }
@@ -164,7 +207,7 @@ impl NodeSigner for LampoKeysManager {
 impl OutputSpender for LampoKeysManager {
     fn spend_spendable_outputs<C: bitcoin::secp256k1::Signing>(
         &self,
-        descriptors: &[&lightning::sign::SpendableOutputDescriptor],
+        descriptors: &[&crate::ldk::sign::SpendableOutputDescriptor],
         outputs: Vec<bitcoin::TxOut>,
         change_destination_script: bitcoin::ScriptBuf,
         feerate_sat_per_1000_weight: u32,
@@ -182,6 +225,8 @@ impl OutputSpender for LampoKeysManager {
     }
 }
 
+//TODO: What needs to be done here?
+#[cfg(feature = "vanilla")]
 impl SignerProvider for LampoKeysManager {
     // FIXME: this should be the same of the inner
     type EcdsaSigner = InMemorySigner;
@@ -228,14 +273,14 @@ impl SignerProvider for LampoKeysManager {
         self.inner.get_destination_script(channel_keys_id)
     }
 
-    fn get_shutdown_scriptpubkey(&self) -> Result<lightning::ln::script::ShutdownScript, ()> {
+    fn get_shutdown_scriptpubkey(&self) -> Result<crate::ldk::ln::script::ShutdownScript, ()> {
         self.inner.get_shutdown_scriptpubkey()
     }
 
     fn read_chan_signer(
         &self,
         reader: &[u8],
-    ) -> Result<Self::EcdsaSigner, lightning::ln::msgs::DecodeError> {
+    ) -> Result<Self::EcdsaSigner, crate::ldk::ln::msgs::DecodeError> {
         self.inner.read_chan_signer(reader)
     }
 }
