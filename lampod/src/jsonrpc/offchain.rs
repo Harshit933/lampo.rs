@@ -21,6 +21,53 @@ use lampo_jsonrpc::errors::{Error, RpcError};
 
 use crate::LampoDaemon;
 
+struct RgbPayVisitor;
+
+impl RgbPayVisitor {
+    fn new() -> RgbPayVisitor { RgbPayVisitor }
+}
+
+struct VanillaPayVisitor;
+
+impl VanillaPayVisitor {
+    fn new() -> VanillaPayVisitor { VanillaPayVisitor }
+}
+
+pub trait LampoVisitor {
+    fn open_channel() -> ();
+}
+
+pub trait InvoiceTrait<T: LampoVisitor> {
+    fn json_open_channel(visitor: T, request: &json::Value, ctx: &LampoDaemon) -> Result<json::Value, Error>;
+}
+
+impl LampoVisitor for VanillaPayVisitor {
+    fn open_channel() -> () {
+        todo!()
+    }
+}
+impl LampoVisitor for RgbPayVisitor {
+    fn open_channel() -> () {
+        todo!()
+    }
+}
+
+pub struct InvoiceDispatch<T: LampoVisitor>{
+    visitor: T,
+}
+
+// Implement open_channel for RGB
+// Question: How to do it for Vanilla? Or remain as it is for Vanilla?
+// Question: Open_channel api for RGB uses some structs which are present inside `rgb_lib`. Example here:
+// https://github.com/RGB-Tools/rgb-lightning-node/blob/317df84f6879525dda7ed9bb15ac6beee7aa961e/src/routes.rs#L2203
+// Then do we need to implement the channel inside lampod or is it better suited inside `lampo-rgb`.
+impl<T: LampoVisitor> InvoiceTrait<T> for InvoiceDispatch<T> {
+    fn json_open_channel(visitor: T, request: &json::Value, ctx: &LampoDaemon) -> Result<json::Value, Error> {
+        todo!()
+    }
+}
+
+#[cfg(feature = "vanilla")]
 pub fn json_invoice(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value, Error> {
     log::info!("call for `invoice` with request `{:?}`", request);
     let request: GenerateInvoice = json::from_value(request.clone())?;

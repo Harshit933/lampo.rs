@@ -2,7 +2,8 @@
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -213,6 +214,7 @@ impl LampoChannelManager {
         Channels { channels }
     }
 
+    #[cfg(feature = "vanilla")]
     pub fn load_channel_monitors(&self, watch: bool) -> error::Result<()> {
         let keys = self.wallet_manager.ldk_keys().inner();
         let mut monitors = read_channel_monitors(self.persister.clone(), keys.clone(), keys)?;
@@ -232,6 +234,28 @@ impl LampoChannelManager {
         Ok(())
     }
 
+    #[cfg(feature = "rgb")]
+    pub fn load_channel_monitors(&self, watch: bool) -> error::Result<()> {
+        let keys = self.wallet_manager.ldk_keys().inner();
+        let path = format!("{}/{}/rgb/", self.conf.root_path, self.conf.network.to_string());
+        let mut monitors = read_channel_monitors(self.persister.clone(), keys.clone(), keys, PathBuf::from_str(path.as_str()).unwrap())?;
+        for (_, chan_mon) in monitors.drain(..) {
+            chan_mon.load_outputs_to_watch(&self.onchain, &self.logger);
+            if watch {
+                let monitor = self
+                    .monitor
+                    .clone()
+                    .ok_or(error::anyhow!("Channel Monitor not present"))?;
+                let outpoint = chan_mon.get_funding_txo().0;
+                monitor
+                    .watch_channel(outpoint, chan_mon)
+                    .map_err(|err| error::anyhow!("{:?}", err))?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "vanilla")]
     pub fn get_channel_monitors(&self) -> error::Result<Vec<ChannelMonitor<InMemorySigner>>> {
         let keys = self.wallet_manager.ldk_keys().inner();
         let mut monitors = read_channel_monitors(self.persister.clone(), keys.clone(), keys)?;
@@ -241,6 +265,19 @@ impl LampoChannelManager {
         }
         Ok(channel_monitors)
     }
+    
+    #[cfg(feature = "rgb")]
+    pub fn get_channel_monitors(&self) -> error::Result<Vec<ChannelMonitor<InMemorySigner>>> {
+        let keys = self.wallet_manager.ldk_keys().inner();
+        let path = format!("{}/{}/rgb/", self.conf.root_path, self.conf.network.to_string());
+        let mut monitors = read_channel_monitors(self.persister.clone(), keys.clone(), keys, PathBuf::from_str(path.as_str()).unwrap())?;
+        let mut channel_monitors = Vec::new();
+        for (_, monitor) in monitors.drain(..) {
+            channel_monitors.push(monitor);
+        }
+        Ok(channel_monitors)
+    }
+
     pub fn graph(&self) -> Arc<LampoGraph> {
         self.graph.clone().unwrap()
     }
@@ -316,6 +353,7 @@ impl LampoChannelManager {
         ))))
     }
 
+    #[cfg(feature = "vanilla")]
     pub fn restart(&mut self) -> error::Result<()> {
         let monitor = self.build_channel_monitor();
         self.monitor = Some(Arc::new(monitor));
@@ -333,6 +371,35 @@ impl LampoChannelManager {
             self.logger.clone(),
             self.conf.ldk_conf,
             monitors,
+        );
+        let mut channel_manager_file = File::open(format!("{}/manager", self.conf.path()))?;
+        let (_, channel_manager) =
+            <(BlockHash, LampoChannel)>::read(&mut channel_manager_file, read_args)
+                .map_err(|err| error::anyhow!("{err}"))?;
+        self.channeld = Some(channel_manager.into());
+        Ok(())
+    }
+
+    #[cfg(feature = "rgb")]
+    pub fn restart(&mut self) -> error::Result<()> {
+        let monitor = self.build_channel_monitor();
+        self.monitor = Some(Arc::new(monitor));
+        let _ = self.network_graph();
+        let mut monitors = self.get_channel_monitors()?;
+        let monitors = monitors.iter_mut().collect::<Vec<_>>();
+        let path = format!("{}/{}/rgb/", self.conf.root_path, self.conf.network.to_string());
+        let read_args = ChannelManagerReadArgs::new(
+            self.wallet_manager.ldk_keys().keys_manager.clone(),
+            self.wallet_manager.ldk_keys().keys_manager.clone(),
+            self.wallet_manager.ldk_keys().keys_manager.clone(),
+            self.onchain.clone(),
+            self.chain_monitor(),
+            self.onchain.clone(),
+            self.router.clone().unwrap(),
+            self.logger.clone(),
+            self.conf.ldk_conf,
+            monitors,
+            PathBuf::from_str(path.as_str()).unwrap(),
         );
         let mut channel_manager_file = File::open(format!("{}/manager", self.conf.path()))?;
         let (_, channel_manager) =
@@ -388,6 +455,8 @@ impl LampoChannelManager {
         self.monitor = Some(Arc::new(monitor));
 
         let keymanagers = self.wallet_manager.ldk_keys().keys_manager.clone();
+        #[cfg(feature = "rgb")]
+        let path = format!("{}/{}/rgb/", self.conf.root_path, self.conf.network.to_string());
         self.channeld = Some(Arc::new(LampoArcChannelManager::new(
             self.onchain.clone(),
             self.monitor.clone().unwrap(),
@@ -400,11 +469,15 @@ impl LampoChannelManager {
             self.conf.ldk_conf,
             chain_params,
             block_timestamp,
+            #[cfg(feature = "rgb")]
+            PathBuf::from_str(path.as_str()).unwrap()
         )));
         Ok(())
     }
 }
 
+// TODO: Fix this. Implement this trait for `RGB`
+#[cfg(feature = "vanilla")]
 impl ChannelEvents for LampoChannelManager {
     fn open_channel(
         &self,

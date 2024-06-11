@@ -225,8 +225,6 @@ impl OutputSpender for LampoKeysManager {
     }
 }
 
-//TODO: What needs to be done here?
-#[cfg(feature = "vanilla")]
 impl SignerProvider for LampoKeysManager {
     // FIXME: this should be the same of the inner
     type EcdsaSigner = InMemorySigner;
@@ -236,6 +234,10 @@ impl SignerProvider for LampoKeysManager {
         channel_value_satoshis: u64,
         channel_keys_id: [u8; 32],
     ) -> Self::EcdsaSigner {
+        // TODO: What needs to be done here? InMemorySigner requires a data directory 
+        // which we can get from lampoconf, but how do we do this as we can't change 
+        // the function definition.
+        #[cfg(feature = "Vanilla")]
         if self.funding_key.is_some() {
             // FIXME(vincenzopalazzo): make this a general
             let commitment_seed = [

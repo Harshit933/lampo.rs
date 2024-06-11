@@ -61,6 +61,7 @@ impl OffchainManager {
 
     /// Generate an invoice with a specific amount and a specific
     /// description.
+    #[cfg(feature = "vanilla")]
     pub fn generate_invoice(
         &self,
         amount_msat: Option<u64>,
