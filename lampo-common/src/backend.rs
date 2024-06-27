@@ -4,14 +4,14 @@
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use bitcoin::absolute::Height;
-use bitcoin::block::Header as BlockHeader;
+use crate::btc::Height;
+use crate::btc::Header;
 
-pub use bitcoin::consensus::{deserialize, serialize};
-pub use bitcoin::{Block, BlockHash, Script, Transaction, Txid};
-pub use lightning::chain::WatchedOutput;
-pub use lightning::routing::utxo::UtxoResult;
-pub use lightning_block_sync::{
+pub use crate::btc::bitcoin::consensus::{deserialize, serialize};
+pub use crate::btc::bitcoin::{Block, BlockHash, Script, Transaction, Txid};
+pub use crate::ldk::chain::WatchedOutput;
+pub use crate::ldk::routing::utxo::UtxoResult;
+pub use crate::ldk::sync::{
     AsyncBlockSourceResult, BlockData, BlockHeaderData, BlockSourceResult,
 };
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use crate::handler::Handler;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum TxResult {
-    Confirmed((Transaction, u32, BlockHeader, Height)),
+    Confirmed((Transaction, u32, Header, Height)),
     Unconfirmed(Transaction),
     Discarded,
 }

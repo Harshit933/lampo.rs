@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use crate::bitcoin::{ScriptBuf, Transaction};
+use crate::btc::{ScriptBuf, Transaction};
 use crate::conf::LampoConf;
 use crate::error;
 use crate::keys::LampoKeys;
 use crate::model::response::{NewAddress, Utxo};
-
 /// Wallet manager trait that define a generic interface
 /// over Wallet implementation!
 pub trait WalletManager: Send + Sync {

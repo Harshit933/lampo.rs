@@ -20,6 +20,7 @@ use lampo_jsonrpc::errors::{Error, RpcError};
 use crate::rpc_error;
 use crate::LampoDaemon;
 
+#[cfg(feature = "vanilla")]
 pub fn json_invoice(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value, Error> {
     log::info!("call for `invoice` with request `{:?}`", request);
     let request: GenerateInvoice = json::from_value(request.clone())?;
@@ -43,13 +44,16 @@ pub fn json_invoice(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Va
     Ok(json::to_value(&invoice)?)
 }
 
+//Bolt12 not inside v0.0.118?
+#[cfg(feature = "vanilla")]
 pub fn json_offer(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value, Error> {
     log::info!("call for `offer` with request `{:?}`", request);
     let request: GenerateOffer = json::from_value(request.clone())?;
     let manager = ctx.channel_manager().manager();
     let mut offer_builder = manager
-        .create_offer_builder(request.description)
-        .map_err(|err| crate::rpc_error!("{:?}", err))?;
+        .create_offer_builder()
+        .map_err(|err| crate::rpc_error!("{:?}", err))?
+        .description(request.description);
 
     if let Some(amount_msat) = request.amount_msat {
         offer_builder = offer_builder.amount_msats(amount_msat);
@@ -91,6 +95,7 @@ pub fn json_decode_invoice(ctx: &LampoDaemon, request: &json::Value) -> Result<j
     Ok(json::to_value(&invoice)?)
 }
 
+#[cfg(feature = "vanilla")]
 pub fn json_pay(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value, Error> {
     log::info!("call for `pay` with request `{:?}`", request);
     let request: Pay = json::from_value(request.clone())?;
@@ -132,6 +137,7 @@ pub fn json_pay(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value,
     }
 }
 
+#[cfg(feature = "vanilla")]
 pub fn json_keysend(ctx: &LampoDaemon, request: &json::Value) -> Result<json::Value, Error> {
     log::debug!("call for `keysend` with request `{:?}`", request);
     let request: KeySend = json::from_value(request.clone())?;

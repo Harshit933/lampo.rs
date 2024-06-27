@@ -27,7 +27,7 @@ use std::thread::JoinHandle;
 use tokio::runtime::Runtime;
 
 use lampo_common::backend::Backend;
-use lampo_common::bitcoin::absolute::Height;
+use lampo_common::btc::Height;
 use lampo_common::conf::LampoConf;
 use lampo_common::error;
 use lampo_common::json;

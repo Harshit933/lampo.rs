@@ -9,12 +9,24 @@ pub mod model;
 pub mod types;
 pub mod wallet;
 
+#[cfg(feature = "vanilla")]
 pub mod ldk {
     pub use lightning::*;
+    pub use lightning_block_sync as sync;
     pub use lightning_background_processor as processor;
     pub use lightning_invoice as invoice;
     pub use lightning_net_tokio as net;
     pub use lightning_persister as persister;
+}
+
+#[cfg(feature = "rgb")]
+pub mod ldk {
+    pub use rgb_lightning::*;
+    pub use rgb_lightning_block_sync as sync;
+    pub use rgb_lightning_background_processor as processor;
+    pub use rgb_lightning_invoice as invoice;
+    pub use rgb_lightning_net_tokio as net;
+    pub use rgb_lightning_persister as persister;
 }
 
 pub mod error {
@@ -36,8 +48,23 @@ pub mod chan {
     pub use crossbeam_channel::*;
 }
 
-pub use bitcoin;
-pub use bitcoin::secp256k1;
+#[cfg(feature = "vanilla")]
+pub mod btc {
+    pub use bitcoin;
+    pub use bitcoin::absolute::Height;
+    pub use bitcoin::secp256k1;
+    pub use bitcoin::block::Header;
+    pub use bitcoin::{ScriptBuf, Transaction};
+}
+
+#[cfg(feature = "rgb")]
+pub mod btc {
+    pub use bitcoin_29 as bitcoin;
+    pub use bitcoin_29::secp256k1;
+    pub use bitcoin_29::blockdata::locktime::Height;
+    pub use bitcoin_29::blockdata::block::BlockHeader as Header;
+    pub use bitcoin_29::{Script as ScriptBuf, Transaction};
+}
 
 pub mod btc_rpc {
     use serde::{Deserialize, Serialize};
