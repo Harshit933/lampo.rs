@@ -62,6 +62,12 @@ pub struct LampoPeerManager {
     liquidity: Option<Arc<LampoLiquidityManager>>,
 }
 
+impl std::fmt::Debug for LampoPeerManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LIQUIDITY_MANAGER_HERE: {:?}", self.liquidity)
+    }
+}
+
 impl LampoPeerManager {
     pub fn new(
         conf: &LampoConf,

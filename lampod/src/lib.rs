@@ -223,6 +223,7 @@ impl LampoDaemon {
                 self.conf.clone(),
                 self.channel_manager(),
                 self.offchain_manager().key_manager(),
+                None,
             ));
         } else {
             liquidity_manager = None;
@@ -231,24 +232,26 @@ impl LampoDaemon {
         let mut peer_manager;
         let peer_liquidity;
 
-        if let Some(ref liq) = liquidity_manager {
+        log::info!("LIQUIDITY_MANAGER_HERE: {:?}", liquidity_manager);
+
+        if let Some(liq) = liquidity_manager {
+            // let arc_liquidity = Arc::new(liq);
             peer_liquidity = Some(Arc::new(liq.clone()));
+            // THIS WORKS
+            self.liquidity = Some(RefCell::new(liq));
         } else {
             peer_liquidity = None;
         }
         peer_manager = LampoPeerManager::new(&self.conf, self.logger.clone(), peer_liquidity);
-
-        if let Some(liq_manager) = liquidity_manager {
-            self.liquidity = Some(RefCell::new(liq_manager));
-        } else {
-            self.liquidity = None;
-        }
 
         peer_manager.init(
             self.onchain_manager(),
             self.wallet_manager.clone(),
             self.channel_manager(),
         )?;
+
+        log::info!("PEER_MANAGER_HERE: {:?}", peer_manager);
+
         self.peer_manager = Some(Arc::new(peer_manager));
         log::info!("Exit peer manager");
         Ok(())
@@ -279,7 +282,17 @@ impl LampoDaemon {
     pub fn init_event_handler(&mut self) -> error::Result<()> {
         log::debug!(target: "lampod", "init inventory manager ...");
         let handler = LampoHandler::new(self);
-        self.handler = Some(Arc::new(handler));
+        let handler_arc = Arc::new(handler);
+        self.handler = Some(Arc::clone(&handler_arc));
+        let res = self
+            .liquidity
+            .clone()
+            .unwrap()
+            .borrow_mut()
+            .set_handler(Some(Arc::clone(&handler_arc)));
+        log::info!("HANDLER SET!");
+        // let res = &self.liquidity.as_ref().unwrap().handler;
+        // res = Some(Arc::clone(&handler_arc));
         Ok(())
     }
 
@@ -329,19 +342,18 @@ impl LampoDaemon {
         let handler = self.handler();
         // Here is the event handled
 
-        if let Some(lsp) = self.liquidity() {
-            log::info!("Listening for liquidity events!");
-            let liquidity = self.liquidity().unwrap();
-            std::thread::spawn(move || {
-                async_run!(async move {
-                    println!("We are inside thread! async_run");
-                    liquidity.borrow_mut().listen();
-                    // loop {
-                    //     log::info!("We are inside!");
-                    // }
-                })
-            });
-        }
+        // if let Some(lsp) = self.liquidity() {
+        //     log::info!("Listening for liquidity events!");
+        //     let liquidity = self.liquidity().unwrap();
+        //     std::thread::spawn(move || {
+        //         async_run!(async move {
+        //             log::info!("We are inside thread! async_run");
+        //             loop {
+        //                 liquidity.borrow_mut().listen();
+        //             }
+        //         })
+        //     });
+        // }
 
         let event_handler = move |event: Event| {
             log::info!(target: "lampo", "ldk event {:?}", event);

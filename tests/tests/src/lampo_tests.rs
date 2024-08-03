@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lampo_common::error;
+use lampo_common::event::liquidity::LiquidityEvent;
 use lampo_common::event::ln::LightningEvent;
 use lampo_common::event::onchain::OnChainEvent;
 use lampo_common::event::Event;
@@ -537,7 +538,7 @@ pub fn act_as_liquidity_server() -> error::Result<()> {
     let _info: response::GetInfo = node1.lampod().call("getinfo", json::json!({})).unwrap();
     println!("This is the getinfo response: {:?}", _info);
     let node1_id = _info.node_id.clone();
-    let socket_addr = format!("127.0.0.1:{}", node2.port.clone());
+    let socket_addr = format!("127.0.0.1:{}", node1.port.clone());
     let socket_addr =
         SocketAddress::from_str(&socket_addr).expect("Failed to parse socket address");
 
@@ -557,11 +558,17 @@ pub fn act_as_liquidity_server() -> error::Result<()> {
 
     let node_id = PublicKey::from_str(&node1_id).expect("Wrong node id");
 
-    let liquidity = node2.liquidity().unwrap().clone();
-    let liquidity_consumer =
-        liquidity
-            .borrow_mut()
-            .configure_as_liquidity_consumer(node_id, socket_addr, None)?;
+    // let liquidity = node2
+    //     .lampod
+    //     .clone()
+    //     .unwrap()
+    //     .configure_as_liquidity_consumer_lampod(node_id, socket_addr, None);
+
+    let wassup_new = node2
+        .liquidity()
+        .borrow_mut()
+        .configure_as_liquidity_consumer(node_id, socket_addr, None)
+        .unwrap();
     let events = node1.lampod().events();
     let _ = node1.fund_wallet(101)?;
     wait!(|| {
@@ -576,17 +583,18 @@ pub fn act_as_liquidity_server() -> error::Result<()> {
         Err(())
     });
 
-    let res = node2.liquidity().unwrap().clone();
-    let result = res
-        .clone()
-        .borrow_mut()
-        .create_a_jit_channel(100_000_000, "A new desc".to_string())?;
-
-    let liquidity_events = res.borrow().events();
+    // let res =
+    let result = wassup_new.create_a_jit_channel(100_000_000, "A new desc".to_string())?;
+    log::info!("This is the result: {:?}", result);
 
     wait!(|| {
-        while let Ok(event) = liquidity_events.recv_timeout(Duration::from_nanos(100_000)) {
-            if let Event::Liquidity(liq_event) = event {
+        while let Ok(event) = events.recv_timeout(Duration::from_nanos(100_000)) {
+            if let Event::Liquidity(LiquidityEvent::OpenParamsReady {
+                counterparty_node_id,
+                opening_fee_params_menu,
+            }) = event
+            {
+                log::info!("Got an event");
                 return Ok(());
             };
         }

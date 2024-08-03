@@ -35,7 +35,6 @@ pub struct LampoHandler {
     external_handlers: RefCell<Vec<Arc<dyn ExternalHandler>>>,
     // Question: How about Option<Arc<Mutex<LampoLiquidityManager>>>
     liquidity_manager: Option<RefCell<LampoLiquidityManager>>,
-    // Do this inside liquidity
     emitter: Emitter<Event>,
     subscriber: Subscriber<Event>,
 }

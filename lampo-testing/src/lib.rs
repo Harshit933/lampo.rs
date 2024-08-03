@@ -71,6 +71,7 @@ pub struct LampoTesting {
     pub mnemonic: String,
     pub btc: Arc<BtcNode>,
     pub info: response::GetInfo,
+    pub lampod: Option<Arc<LampoDaemon>>,
 }
 
 impl LampoTesting {
@@ -147,6 +148,7 @@ impl LampoTesting {
             root_path: dir.into(),
             info,
             liquidity: None,
+            lampod: None,
         })
     }
 
@@ -232,6 +234,7 @@ impl LampoTesting {
             root_path: Arc::new(dir),
             info,
             liquidity,
+            lampod: Some(lampod),
         })
     }
 
@@ -267,7 +270,7 @@ impl LampoTesting {
         self.root_path.clone()
     }
 
-    pub fn liquidity(&self) -> Option<RefCell<LampoLiquidityManager>> {
-        self.liquidity.clone()
+    pub fn liquidity(&self) -> RefCell<LampoLiquidityManager> {
+        self.liquidity.as_ref().unwrap().clone()
     }
 }

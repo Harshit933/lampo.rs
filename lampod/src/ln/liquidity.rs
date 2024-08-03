@@ -1,4 +1,7 @@
 use std::borrow::Borrow;
+use std::cell::RefCell;
+use std::fmt::Arguments;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -11,6 +14,7 @@ use lampo_common::chrono::Utc;
 use lampo_common::conf::LampoConf;
 use lampo_common::error;
 use lampo_common::error::Ok;
+use lampo_common::event::liquidity::LiquidityEvent;
 use lampo_common::event::Emitter;
 use lampo_common::event::Event;
 use lampo_common::event::Subscriber;
@@ -37,6 +41,7 @@ use lightning_liquidity::lsps2::msgs::OpeningFeeParams;
 use lightning_liquidity::lsps2::msgs::RawOpeningFeeParams;
 use lightning_liquidity::LiquidityManager;
 
+use crate::actions::handler::LampoHandler;
 use crate::chain::LampoChainManager;
 use crate::ln::LampoChannel;
 use crate::ln::LampoChannelManager;
@@ -51,9 +56,10 @@ pub struct LiquidityProvider {
     pub addr: SocketAddress,
     pub node_id: PublicKey,
     pub token: Option<String>,
-    pub opening_params: Option<Vec<OpeningFeeParams>>,
-    pub scid: Option<u64>,
-    pub ctlv_exiry: Option<u32>,
+    // These params should be present inside events
+    // pub opening_params: Option<Vec<OpeningFeeParams>>,
+    // pub scid: Option<u64>,
+    // pub ctlv_exiry: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -61,11 +67,21 @@ pub struct LampoLiquidityManager {
     lampo_liquidity: Arc<LampoLiquidity>,
     lampo_conf: LampoConf,
     // FIXME: How about Option<Arc<Mutex<LiquidityProvider>>>?
-    lsp_provider: Arc<Mutex<Option<LiquidityProvider>>>,
+    // Remove mutex
+    lsp_provider: Option<LiquidityProvider>,
     channel_manager: Arc<LampoChannelManager>,
     keys_manager: Arc<LampoKeysManager>,
-    emitter: Emitter<Event>,
-    subscriber: Subscriber<Event>,
+    pub handler: Option<Arc<LampoHandler>>,
+}
+
+impl std::fmt::Debug for LampoLiquidityManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "LAMPOCONF: {:?}, PROVIDER: {:?}",
+            self.lampo_conf, self.lsp_provider
+        )
+    }
 }
 
 // Maybe implement Emit event for this too?
@@ -75,55 +91,60 @@ impl LampoLiquidityManager {
         conf: LampoConf,
         channel_manager: Arc<LampoChannelManager>,
         keys_manager: Arc<LampoKeysManager>,
+        handler: Option<Arc<LampoHandler>>,
     ) -> Self {
-        let emitter = Emitter::default();
-        let subscriber = emitter.subscriber();
         Self {
             lampo_liquidity: liquidity,
             lampo_conf: conf,
-            lsp_provider: Arc::new(Mutex::new(None)),
+            lsp_provider: None,
             channel_manager,
             keys_manager,
-            emitter,
-            subscriber,
+            handler,
         }
+    }
+
+    pub fn set_handler(&mut self, handler: Option<Arc<LampoHandler>>) -> &mut Self {
+        self.handler = handler;
+        self
     }
 
     // This should not be initiated when we open our node only when we
     // provide some args inside cli or in lampo.conf
 
     pub fn has_some_provider(&self) -> Option<LiquidityProvider> {
-        self.lsp_provider.lock().unwrap().clone()
+        self.lsp_provider.clone()
     }
+
     pub fn configure_as_liquidity_consumer(
         &mut self,
         node_id: PublicKey,
         addr: SocketAddress,
         token: Option<String>,
-    ) -> error::Result<()> {
+    ) -> error::Result<Self> {
         log::info!("Starting lampo-liquidity manager as a consumer!");
-        if self.has_some_provider().is_none() {
-            println!("We are inside hqllo 1");
+        if self.handler.is_some() {
+            log::info!("OKAY HANDLER WORKS GOODISH");
+        }
+        if self.lsp_provider.is_none() {
+            log::info!("We are inside has_some_provider_configure");
             let liquidity_provider = LiquidityProvider {
                 addr,
                 node_id,
                 token,
-                opening_params: None,
-                scid: None,
-                ctlv_exiry: None,
             };
 
-            *self.lsp_provider.lock().unwrap() = Some(liquidity_provider);
-            let res = self.lsp_provider.lock().unwrap().clone();
-            log::info!("This is the result liq prov: {:?}", res);
+            self.lsp_provider = Some(liquidity_provider);
+            // let res = self.lsp_provider.lock().unwrap().clone();
+            // log::info!("This is the result liq prov: {:?}", res);
         }
 
-        println!(
-            "This is the object we are having after configure as liquidity consumer: {:?}",
-            self.lsp_provider.clone()
-        );
+        log::info!("SELFFFFFFFFFFFFFF!!!!!!!: {:?}", self);
 
-        Ok(())
+        Ok(self.clone())
+    }
+
+    pub fn handler(&self) -> Arc<LampoHandler> {
+        self.handler.as_ref().unwrap().clone()
     }
 
     pub fn liquidity_manager(&self) -> Arc<LampoLiquidity> {
@@ -172,15 +193,19 @@ impl LampoLiquidityManager {
 
     pub fn set_peer_manager(&self, peer_manager: Arc<InnerLampoPeerManager>) {
         let process_msgs_callback = move || peer_manager.process_events();
+        // If used refcell it won't compile
         self.liquidity_manager()
             .set_process_msgs_callback(process_msgs_callback);
     }
 
+    // 1. See if the events are being emitted.
+    // 2. After emitted, are these events handled properly?
+    // 3. Next modify the tests.
+
     // getinfo(server) -> OpeningParamsReady(client) -> BuyRequest(client) -> InvoiceParametersReady(client) -> OpenChannel(server)
     pub async fn listen(&mut self) -> error::Result<()> {
-        log::info!("GOT AN EVENT!!!");
         match self.lampo_liquidity.next_event_async().await {
-            liquidity_events::LSPS0Client(..) => unimplemented!(),
+            // Get the opening_fee_params_menu from here and should be inside the event emitted.
             liquidity_events::LSPS2Client(LSPS2ClientEvent::OpeningParametersReady {
                 counterparty_node_id,
                 opening_fee_params_menu,
@@ -194,19 +219,17 @@ impl LampoLiquidityManager {
 
                 // TODO: Handle this in a better way as we can get new opening_params from a
                 // LSP if it fails to responds within a certain time
-                if self.get_lsp_provider().opening_params.is_some() {
-                    error::bail!("We already have some params inside lsp_provider");
-                }
+                // if self.get_lsp_provider().opening_params.is_some() {
+                //     error::bail!("We already have some params inside lsp_provider");
+                // }
 
-                self.lsp_provider
-                    .lock()
-                    .unwrap()
-                    .clone()
-                    .unwrap()
-                    .opening_params = Some(opening_fee_params_menu);
-                self.emit(Event::Liquidity(
-                    "Got a openingparamsready event".to_string(),
-                ));
+                // self.lsp_provider.clone().unwrap().opening_params = Some(opening_fee_params_menu);
+                self.handler()
+                    .emit(Event::Liquidity(LiquidityEvent::OpenParamsReady {
+                        counterparty_node_id,
+                        opening_fee_params_menu,
+                    }));
+
                 Ok(())
             }
             liquidity_events::LSPS2Client(LSPS2ClientEvent::InvoiceParametersReady {
@@ -219,14 +242,19 @@ impl LampoLiquidityManager {
                     error::bail!("Unknown lsp");
                 }
 
+                // Make a new event inside this where we pass the cltv_expiry_delta
+                // and intercept_scid and when we get the event we get theses values from them
+
                 // We will take the intercept_scid and cltv_expiry_delta from here and
                 // generate an invoice from these params
-                self.get_lsp_provider().ctlv_exiry = Some(cltv_expiry_delta);
-                self.get_lsp_provider().scid = Some(intercept_scid);
-                self.emit(Event::Liquidity(
-                    "Got a invoiceparamsReady event".to_string(),
-                ));
-
+                // self.get_lsp_provider().ctlv_exiry = Some(cltv_expiry_delta);
+                // self.get_lsp_provider().scid = Some(intercept_scid);
+                self.handler()
+                    .emit(Event::Liquidity(LiquidityEvent::InvoiceparamsReady {
+                        counterparty_node_id,
+                        intercept_scid,
+                        cltv_expiry_delta,
+                    }));
                 Ok(())
             }
             liquidity_events::LSPS2Service(LSPS2ServiceEvent::GetInfo {
@@ -268,6 +296,7 @@ impl LampoLiquidityManager {
 
                 Ok(())
             }
+            // This actually gives the client all the scid and
             liquidity_events::LSPS2Service(LSPS2ServiceEvent::BuyRequest {
                 request_id,
                 counterparty_node_id,
@@ -331,35 +360,43 @@ impl LampoLiquidityManager {
 
                 Ok(())
             }
+            _ => error::bail!("Wrong event received"),
         }
+        // log::info!("returned from listen()");
+        // res
     }
 
     fn client_request_opening_params(&self) -> error::Result<RequestId> {
         let provider = self.has_some_provider().clone();
-        println!("This is the object before is_none call : {:?}", provider);
+        // log::info!("CLIENT: {:?}", self);
         if provider.is_none() {
             error::bail!("LSP provider not configured")
         }
 
-        let node_id = provider.clone().unwrap().node_id;
-        let token = provider.unwrap().token;
+        let node_id = self.lsp_provider.clone().unwrap().node_id;
+        let token = None;
         let res = self
             .lampo_liquidity
             .lsps2_client_handler()
             .unwrap()
             .request_opening_params(node_id, token);
 
-        log::info!("This is the request_id: {:?}", res);
+        log::info!("SELF INSIDE CLIENT_REQUEST_OPENING_PARAMS: {:?}", self);
 
-        loop {
-            let event = self.events().recv_timeout(Duration::from_secs(30)).unwrap();
-            if let Event::Liquidity(str) = event {
-                log::info!("We got an liquidity event!");
-                return Ok(res);
-            } else {
-                error::bail!("Wrong event received")
+        let _ = loop {
+            let events = self.handler().events();
+            let event = events.recv_timeout(std::time::Duration::from_secs(30))?;
+
+            if let Event::Liquidity(LiquidityEvent::OpenParamsReady {
+                counterparty_node_id,
+                opening_fee_params_menu,
+            }) = event
+            {
+                break Some((counterparty_node_id, opening_fee_params_menu));
             }
-        }
+        };
+
+        log::info!("This is the request_id: {:?}", res);
 
         Ok(res)
     }
@@ -384,32 +421,26 @@ impl LampoLiquidityManager {
         amount_msat: u64,
         description: String,
     ) -> error::Result<Bolt11Invoice> {
+        log::info!("SELF HERE: {:?}", self);
         self.client_request_opening_params()?;
-        let fee_param = self.get_lsp_provider().opening_params.clone();
-        if fee_param.is_none() {
-            error::bail!("At this point best_fee_param should not be None");
-        }
+        unimplemented!()
+        // let fee_param = self.get_lsp_provider().opening_params.clone();
+        // if fee_param.is_none() {
+        // error::bail!("At this point best_fee_param should not be None");
+        // }
 
         // TODO: We need to provide a suitable algorithm to get the best_params from all the
         // opening params that we get from the peer. For now we are getting the first param
-        let best_fee_param = &fee_param.unwrap().clone()[0];
+        // let best_fee_param = &fee_param.unwrap().clone()[0];
 
-        self.buy_request(best_fee_param.clone(), amount_msat)?;
-        let invoice = self.generate_invoice_for_jit_channel(amount_msat, description)?;
+        // self.buy_request(best_fee_param.clone(), amount_msat)?;
+        // let invoice = self.generate_invoice_for_jit_channel(amount_msat, description)?;
 
-        Ok(invoice)
+        // Ok(invoice)
     }
 
     pub fn get_lsp_provider(&self) -> LiquidityProvider {
-        let res = self.lsp_provider.lock().unwrap().clone();
-        println!("This is the get_lsp_provider: {:?}", res);
-        self.lsp_provider
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap()
-            .borrow()
-            .clone()
+        self.lsp_provider.clone().unwrap()
     }
 
     fn generate_invoice_for_jit_channel(
@@ -417,8 +448,8 @@ impl LampoLiquidityManager {
         amount_msat: u64,
         description: String,
     ) -> error::Result<Bolt11Invoice> {
-        let scid = self.get_lsp_provider().scid.unwrap();
-        let cltv = self.get_lsp_provider().ctlv_exiry.unwrap();
+        let scid = todo!();
+        let cltv = todo!();
         let node_id = self.get_lsp_provider().node_id;
 
         // TODO: This needs to be configurable
@@ -443,7 +474,7 @@ impl LampoLiquidityManager {
                 base_msat: 0,
                 proportional_millionths: 0,
             },
-            cltv_expiry_delta: cltv as u16,
+            cltv_expiry_delta: cltv,
             htlc_minimum_msat: None,
             htlc_maximum_msat: None,
         }]);
@@ -469,17 +500,5 @@ impl LampoLiquidityManager {
         })?;
 
         Ok(invoice)
-    }
-}
-
-impl Handler for LampoLiquidityManager {
-    fn emit(&self, event: Event) {
-        log::debug!(target: "emitter", "emit event: {:?}", event);
-        self.emitter.emit(event)
-    }
-
-    fn events(&self) -> chan::Receiver<Event> {
-        log::debug!(target: "listener", "subscribe for events");
-        self.subscriber.subscribe()
     }
 }

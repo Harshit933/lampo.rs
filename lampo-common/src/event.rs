@@ -1,8 +1,11 @@
 //! Events commands
+pub mod liquidity;
 pub mod ln;
 pub mod onchain;
 
 use std::sync::{Arc, Mutex};
+
+use liquidity::LiquidityEvent;
 
 use crate::chan;
 use crate::event::ln::LightningEvent;
@@ -64,6 +67,6 @@ impl<T: Clone> Subscriber<T> {
 pub enum Event {
     Lightning(LightningEvent),
     OnChain(OnChainEvent),
-    Liquidity(String),
+    Liquidity(LiquidityEvent),
     Inventory,
 }
