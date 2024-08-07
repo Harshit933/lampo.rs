@@ -127,6 +127,10 @@ impl LampoChannelManager {
         self.handler.borrow().clone().unwrap()
     }
 
+    pub fn channeld(&self) -> Arc<LampoChannel> {
+        self.channeld.clone().unwrap()
+    }
+
     pub fn listen(self: Arc<Self>) -> JoinHandle<()> {
         if self.is_restarting().unwrap() {
             self.resume_channels().unwrap();

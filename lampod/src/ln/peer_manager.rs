@@ -46,7 +46,6 @@ pub type SimpleArcPeerManager<M, T, L> = PeerManager<
     Arc<P2PGossipSync<Arc<NetworkGraph<Arc<L>>>, Arc<T>, Arc<L>>>,
     Arc<LampoArcOnionMessenger<L>>,
     Arc<L>,
-    // Implement a custom messagehandler for liquidity See https://docs.rs/lightning-liquidity/0.1.0-alpha.4/lightning_liquidity/struct.LiquidityManager.html#
     LampoCustomMessageHandler,
     Arc<LampoKeysManager>,
 >;
@@ -60,12 +59,6 @@ pub struct LampoPeerManager {
     conf: LampoConf,
     logger: Arc<LampoLogger>,
     liquidity: Option<Arc<LampoLiquidityManager>>,
-}
-
-impl std::fmt::Debug for LampoPeerManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LIQUIDITY_MANAGER_HERE: {:?}", self.liquidity)
-    }
 }
 
 impl LampoPeerManager {
